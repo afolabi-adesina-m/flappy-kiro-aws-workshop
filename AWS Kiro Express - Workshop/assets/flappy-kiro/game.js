@@ -133,6 +133,7 @@ function updatePipes(timestamp) {
       p.scored = true;
       score++;
       scoreFlash = CONFIG.SCORE_FLASH_FRAMES;
+      spawnScorePop();  // floating +1 indicator (FR-24)
       playSound('score');
 
       // Increase difficulty
@@ -158,12 +159,18 @@ const cloudLayers = CONFIG.CLOUD_LAYERS.map((layer, li) => {
 function makeCloud(layer, layerIdx, randomX = false) {
   const w = (80 + Math.random() * 80) * layer.scale;
   const h = (30 + Math.random() * 30) * layer.scale;
+  const puffCount = Math.floor(2 + Math.random() * 3);
+  // Store puff offsets at creation time to prevent shimmer on draw (Task 19)
+  const puffs = Array.from({ length: puffCount }, (_, i) => ({
+    ox: (w / (puffCount + 1)) * (i + 1),
+    r:  (h / 2 * 0.7) + Math.random() * h / 2 * 0.3,
+  }));
   return {
     x:  randomX ? Math.random() * W : W + w,
     y:  20 + Math.random() * (H - CONFIG.GROUND_H - 120),
-    w, h,
-    puffs: Math.floor(2 + Math.random() * 3),
+    w, h, puffs,
   };
+};
 }
 
 function updateClouds() {
@@ -376,28 +383,20 @@ function drawStars(t) {
 }
 
 /* Draw a single puffy cloud shape */
-function drawCloudShape(x, y, w, h, puffs, alpha) {
+function drawCloudShape(c, alpha) {
   ctx.save();
   ctx.globalAlpha = alpha;
   ctx.fillStyle   = '#c8d8ff';
-
-  const rx = w / 2;
-  const ry = h / 2;
-
   // Base ellipse
   ctx.beginPath();
-  ctx.ellipse(x + rx, y + ry, rx, ry, 0, 0, Math.PI * 2);
+  ctx.ellipse(c.x + c.w/2, c.y + c.h/2, c.w/2, c.h/2, 0, 0, Math.PI * 2);
   ctx.fill();
-
-  // Extra puffs across the top
-  for (let i = 0; i < puffs; i++) {
-    const px  = x + (w / (puffs + 1)) * (i + 1);
-    const pr  = (ry * 0.7) + Math.random() * ry * 0.3;
+  // Draw stored puffs (no Math.random() here — positions fixed at spawn)
+  c.puffs.forEach(p => {
     ctx.beginPath();
-    ctx.arc(px, y + ry * 0.5, pr, 0, Math.PI * 2);
+    ctx.arc(c.x + p.ox, c.y + c.h * 0.5, p.r, 0, Math.PI * 2);
     ctx.fill();
-  }
-
+  });
   ctx.globalAlpha = 1;
   ctx.restore();
 }
@@ -405,7 +404,7 @@ function drawCloudShape(x, y, w, h, puffs, alpha) {
 function drawClouds() {
   cloudLayers.forEach(layer => {
     layer.clouds.forEach(c => {
-      drawCloudShape(c.x, c.y, c.w, c.h, c.puffs, layer.alpha);
+      drawCloudShape(c, layer.alpha);
     });
   });
 }
