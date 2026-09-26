@@ -170,7 +170,6 @@ function makeCloud(layer, layerIdx, randomX = false) {
     y:  20 + Math.random() * (H - CONFIG.GROUND_H - 120),
     w, h, puffs,
   };
-};
 }
 
 function updateClouds() {
