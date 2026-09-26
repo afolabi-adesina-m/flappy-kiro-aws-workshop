@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Flappy Kiro</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="game-wrapper">
+    <canvas id="gameCanvas" width="480" height="640"></canvas>
+
+    <div id="ui-overlay">
+
+      <!-- Start screen -->
+      <div id="start-screen" class="screen">
+        <h1 class="title">FLAPPY<br/><span>KIRO</span></h1>
+        <p class="subtitle">guide the ghost through the pipes</p>
+        <p class="prompt blink">PRESS SPACE OR TAP TO START</p>
+      </div>
+
+      <!-- Game over screen -->
+      <div id="game-over-screen" class="screen hidden">
+        <h2>GAME OVER</h2>
+        <p class="score-label">SCORE</p>
+        <p id="final-score" class="final-score">0</p>
+        <p class="score-label">BEST</p>
+        <p id="best-score" class="best-score">0</p>
+        <p class="prompt blink">PRESS SPACE OR TAP TO RETRY</p>
+      </div>
+
+    </div>
+  </div>
+
+  <script src="game.js"></script>
+</body>
+</html>

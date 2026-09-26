@@ -1,0 +1,132 @@
+/* ── Reset & Base ───────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+:root {
+  --sky:    #1a1a2e;
+  --green:  #3ddc84;
+  --green2: #2bbd6e;
+  --pipe:   #2ecc71;
+  --pipe-d: #27ae60;
+  --accent: #f0e68c;
+  --white:  #e8e8e8;
+  --red:    #e74c3c;
+}
+
+body {
+  background: #0d0d1a;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  font-family: 'Press Start 2P', monospace;
+  overflow: hidden;
+}
+
+/* ── Game Wrapper ───────────────────────────────────────────────── */
+#game-wrapper {
+  position: relative;
+  width: 480px;
+  height: 640px;
+  border: 3px solid var(--green);
+  box-shadow: 0 0 30px rgba(61, 220, 132, 0.4), 0 0 60px rgba(61, 220, 132, 0.15);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+}
+
+/* ── UI Overlay ─────────────────────────────────────────────────── */
+#ui-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  pointer-events: none;
+}
+
+.screen {
+  text-align: center;
+  padding: 24px 32px;
+  background: rgba(10, 10, 26, 0.88);
+  border: 2px solid var(--green);
+  border-radius: 4px;
+  box-shadow: 0 0 20px rgba(61, 220, 132, 0.3);
+  pointer-events: all;
+}
+
+.screen.hidden { display: none; }
+
+/* ── Start Screen ───────────────────────────────────────────────── */
+.title {
+  font-size: 2.4rem;
+  color: var(--accent);
+  line-height: 1.3;
+  text-shadow: 3px 3px 0 #8b6914, 0 0 20px rgba(240, 230, 140, 0.5);
+  margin-bottom: 16px;
+}
+
+.title span {
+  color: var(--green);
+  text-shadow: 3px 3px 0 #1a7a40, 0 0 20px rgba(61, 220, 132, 0.6);
+}
+
+.subtitle {
+  font-size: 0.5rem;
+  color: var(--white);
+  margin-bottom: 28px;
+  letter-spacing: 1px;
+  opacity: 0.7;
+}
+
+/* ── Game Over Screen ───────────────────────────────────────────── */
+#game-over-screen h2 {
+  font-size: 1.6rem;
+  color: var(--red);
+  text-shadow: 3px 3px 0 #7b1e1e;
+  margin-bottom: 20px;
+}
+
+.score-label {
+  font-size: 0.45rem;
+  color: var(--white);
+  opacity: 0.6;
+  margin-top: 10px;
+}
+
+.final-score, .best-score {
+  font-size: 1.8rem;
+  margin-top: 4px;
+  margin-bottom: 8px;
+}
+
+.final-score { color: var(--accent); }
+.best-score  { color: var(--green); }
+
+/* ── Shared prompt ──────────────────────────────────────────────── */
+.prompt {
+  font-size: 0.42rem;
+  color: var(--white);
+  margin-top: 22px;
+  letter-spacing: 0.5px;
+}
+
+/* ── Blink animation ────────────────────────────────────────────── */
+.blink { animation: blink 1.1s step-end infinite; }
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+
+/* ── Responsive scale ───────────────────────────────────────────── */
+@media (max-height: 680px) {
+  #game-wrapper { width: 360px; height: 480px; }
+}
