@@ -297,7 +297,9 @@ function startGame() {
   lastPipeTime = 0;
   shakeMag     = 0;
   resetGhost();
-  ghost.vy = CONFIG.JUMP_FORCE * 0.7;
+  ghost.vy      = CONFIG.JUMP_FORCE * 0.7;
+  ghost.renderY = ghost.y;   // snap on game start launch
+  ghost.renderY = ghost.y;   // snap on launch
   startScreen.classList.add('hidden');
   gameOverScreen.classList.add('hidden');
   pauseScreen.classList.add('hidden');
@@ -340,7 +342,8 @@ function flap() {
   if (state === STATE.DEAD)   { restartGame(); return; }
   if (state === STATE.IDLE)   { startGame();   return; }
   if (state === STATE.PAUSED) return;
-  ghost.vy = CONFIG.JUMP_FORCE;
+  ghost.vy      = CONFIG.JUMP_FORCE;
+  ghost.renderY = ghost.y;   // snap render pos on flap — eliminates perceived input lag
   playSound('jump');
 }
 
