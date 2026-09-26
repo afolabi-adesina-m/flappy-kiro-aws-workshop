@@ -15,26 +15,44 @@
 
     <div id="ui-overlay">
 
-      <!-- Start screen -->
+      <!-- ── Start / Main Menu ── -->
       <div id="start-screen" class="screen">
         <h1 class="title">FLAPPY<br/><span>KIRO</span></h1>
         <p class="subtitle">guide the ghost through the pipes</p>
+        <div class="best-banner">
+          <span class="label">BEST</span>
+          <span id="menu-best" class="value">0</span>
+        </div>
         <p class="prompt blink">PRESS SPACE OR TAP TO START</p>
       </div>
 
-      <!-- Game over screen -->
+      <!-- ── Pause overlay ── -->
+      <div id="pause-screen" class="screen hidden">
+        <h2 class="pause-title">PAUSED</h2>
+        <p class="pause-hint">PRESS P OR ESC TO RESUME</p>
+      </div>
+
+      <!-- ── Game Over ── -->
       <div id="game-over-screen" class="screen hidden">
-        <h2>GAME OVER</h2>
-        <p class="score-label">SCORE</p>
-        <p id="final-score" class="final-score">0</p>
-        <p class="score-label">BEST</p>
-        <p id="best-score" class="best-score">0</p>
+        <h2 class="gameover-title">GAME<br/>OVER</h2>
+        <div class="score-row">
+          <div class="score-block">
+            <p class="score-label">SCORE</p>
+            <p id="final-score" class="score-value accent">0</p>
+          </div>
+          <div class="score-block">
+            <p class="score-label">BEST</p>
+            <p id="best-score" class="score-value green">0</p>
+          </div>
+        </div>
         <p class="prompt blink">PRESS SPACE OR TAP TO RETRY</p>
       </div>
 
-    </div>
-  </div>
+    </div><!-- /ui-overlay -->
+  </div><!-- /game-wrapper -->
 
+  <!-- config must load before game logic -->
+  <script src="config.js"></script>
   <script src="game.js"></script>
 </body>
 </html>

@@ -1,154 +1,325 @@
 /* ═══════════════════════════════════════════════════════════════
-   FLAPPY KIRO  –  game.js
+   FLAPPY KIRO — game.js
+   All magic numbers live in config.js. This file is pure logic.
    ═══════════════════════════════════════════════════════════════ */
 
-const canvas  = document.getElementById('gameCanvas');
-const ctx     = canvas.getContext('2d');
-
-const W = canvas.width;   // 480
-const H = canvas.height;  // 640
+/* ── Canvas setup ──────────────────────────────────────────────── */
+const canvas = document.getElementById('gameCanvas');
+const ctx    = canvas.getContext('2d');
+const W      = CONFIG.WIDTH;
+const H      = CONFIG.HEIGHT;
 
 /* ── DOM refs ──────────────────────────────────────────────────── */
-const startScreen   = document.getElementById('start-screen');
-const gameOverScreen= document.getElementById('game-over-screen');
-const finalScoreEl  = document.getElementById('final-score');
-const bestScoreEl   = document.getElementById('best-score');
+const startScreen    = document.getElementById('start-screen');
+const gameOverScreen = document.getElementById('game-over-screen');
+const pauseScreen    = document.getElementById('pause-screen');
+const finalScoreEl   = document.getElementById('final-score');
+const bestScoreEl    = document.getElementById('best-score');
+const menuBestEl     = document.getElementById('menu-best');
 
-/* ── Game state ────────────────────────────────────────────────── */
-const STATE = { IDLE: 0, PLAYING: 1, DEAD: 2 };
+/* ── Game states ───────────────────────────────────────────────── */
+const STATE = { IDLE: 0, PLAYING: 1, PAUSED: 2, DEAD: 3 };
 let state = STATE.IDLE;
 
-/* ── Constants ─────────────────────────────────────────────────── */
-const GRAVITY      = 0.45;
-const JUMP_FORCE   = -8.5;
-const PIPE_WIDTH   = 64;
-const PIPE_GAP     = 160;
-const PIPE_SPEED   = 2.8;
-const PIPE_INTERVAL= 1600; // ms between pipes
-const GROUND_H     = 60;
-const GHOST_X      = 100;
-const GHOST_SIZE   = 40;
-
-/* ── Score ─────────────────────────────────────────────────────── */
+/* ── Persistent score ──────────────────────────────────────────── */
 let score     = 0;
-let bestScore = parseInt(localStorage.getItem('flappyKiroBest') || '0');
+let bestScore = parseInt(localStorage.getItem(CONFIG.LOCALSTORAGE_KEY) || '0');
 
-/* ── Ghost ─────────────────────────────────────────────────────── */
-const ghost = {
-  x: GHOST_X,
-  y: H / 2,
-  vy: 0,
-  angle: 0,   // visual tilt
-  wobble: 0,  // float wobble on idle/dead
-};
+/* ══════════════════════════════════════════════════════════════════
+   AUDIO
+   ══════════════════════════════════════════════════════════════════ */
+const sounds = {};
 
-function resetGhost() {
-  ghost.x  = GHOST_X;
-  ghost.y  = H / 2;
-  ghost.vy = 0;
-  ghost.angle = 0;
-  ghost.wobble = 0;
+function loadSound(key, src) {
+  const a = new Audio(src);
+  a.volume = CONFIG.VOLUME_SFX;
+  sounds[key] = a;
 }
 
-/* ── Pipes ─────────────────────────────────────────────────────── */
-let pipes = [];
+function playSound(key) {
+  if (!sounds[key]) return;
+  const clone = sounds[key].cloneNode();
+  clone.volume = CONFIG.VOLUME_SFX;
+  clone.play().catch(() => {});
+}
+
+loadSound('jump',     '../jump.wav');
+loadSound('gameover', '../game_over.wav');
+
+/* ══════════════════════════════════════════════════════════════════
+   GHOST
+   ══════════════════════════════════════════════════════════════════ */
+const ghost = {
+  x:       CONFIG.GHOST_X,
+  y:       H / 2,
+  vy:      0,
+  renderY: H / 2,   // interpolated render position
+};
+
+// Sprite image
+const ghostImg = new Image();
+ghostImg.src = '../ghosty.png';
+let ghostImgLoaded = false;
+ghostImg.onload = () => { ghostImgLoaded = true; };
+
+function resetGhost() {
+  ghost.x       = CONFIG.GHOST_X;
+  ghost.y       = H / 2;
+  ghost.vy      = 0;
+  ghost.renderY = H / 2;
+}
+
+function updateGhost() {
+  // Apply gravity
+  ghost.vy += CONFIG.GRAVITY;
+
+  // Clamp to terminal velocity
+  if (ghost.vy > CONFIG.TERMINAL_VEL) ghost.vy = CONFIG.TERMINAL_VEL;
+
+  // Momentum conservation (horizontal is fixed, but vy retains momentum)
+  ghost.y += ghost.vy;
+
+  // Smooth interpolation for render position
+  ghost.renderY += (ghost.y - ghost.renderY) * CONFIG.INTERPOLATION;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   PIPES
+   ══════════════════════════════════════════════════════════════════ */
+let pipes        = [];
+let pipeSpeed    = CONFIG.PIPE_SPEED_INIT;
+let pipeInterval = CONFIG.PIPE_INTERVAL;
 let lastPipeTime = 0;
 
 function spawnPipe(timestamp) {
-  const minTop = 80;
-  const maxTop = H - GROUND_H - PIPE_GAP - 80;
-  const topH   = minTop + Math.random() * (maxTop - minTop);
+  const usableH  = H - CONFIG.GROUND_H;
+  const halfGap  = currentGap() / 2;
+  const minCY    = CONFIG.PIPE_MARGIN_TOP + halfGap;
+  const maxCY    = usableH - CONFIG.PIPE_MARGIN_BOT - halfGap;
+  const centreY  = minCY + Math.random() * (maxCY - minCY);
+  const gap      = currentGap();
+
   pipes.push({
-    x:     W + PIPE_WIDTH,
-    topH:  topH,
-    botY:  topH + PIPE_GAP,
-    botH:  H - GROUND_H - topH - PIPE_GAP,
+    x:      W + CONFIG.PIPE_WIDTH,
+    topH:   centreY - gap / 2,
+    botY:   centreY + gap / 2,
+    botH:   usableH - (centreY + gap / 2),
     scored: false,
   });
   lastPipeTime = timestamp;
 }
 
-/* ── Stars (background) ────────────────────────────────────────── */
-const stars = Array.from({ length: 80 }, () => ({
-  x: Math.random() * W,
-  y: Math.random() * (H - GROUND_H),
-  r: Math.random() * 1.5 + 0.3,
+function currentGap() {
+  // Gap shrinks as score increases, down to minimum
+  const reduced = CONFIG.PIPE_GAP - score * 1.2;
+  return Math.max(reduced, CONFIG.PIPE_GAP_MIN);
+}
+
+function updatePipes(timestamp) {
+  // Spawn new pipe
+  if (timestamp - lastPipeTime > pipeInterval || lastPipeTime === 0) {
+    spawnPipe(timestamp);
+  }
+
+  // Move pipes
+  pipes.forEach(p => { p.x -= pipeSpeed; });
+
+  // Remove off-screen pipes
+  pipes = pipes.filter(p => p.x + CONFIG.PIPE_WIDTH + 20 > 0);
+
+  // Score & progressive speed
+  pipes.forEach(p => {
+    if (!p.scored && p.x + CONFIG.PIPE_WIDTH < ghost.x) {
+      p.scored = true;
+      score++;
+      scoreFlash = CONFIG.SCORE_FLASH_FRAMES;
+      playSound('score');
+
+      // Increase difficulty
+      pipeSpeed    = Math.min(CONFIG.PIPE_SPEED_MAX,
+                              pipeSpeed + CONFIG.PIPE_SPEED_INC);
+      pipeInterval = Math.max(CONFIG.PIPE_INTERVAL_MIN,
+                              pipeInterval - 10);
+    }
+  });
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   CLOUDS  (parallax layers)
+   ══════════════════════════════════════════════════════════════════ */
+const cloudLayers = CONFIG.CLOUD_LAYERS.map((layer, li) => {
+  const clouds = [];
+  for (let i = 0; i < layer.count; i++) {
+    clouds.push(makeCloud(layer, li, true));
+  }
+  return { ...layer, clouds };
+});
+
+function makeCloud(layer, layerIdx, randomX = false) {
+  const w = (80 + Math.random() * 80) * layer.scale;
+  const h = (30 + Math.random() * 30) * layer.scale;
+  return {
+    x:  randomX ? Math.random() * W : W + w,
+    y:  20 + Math.random() * (H - CONFIG.GROUND_H - 120),
+    w, h,
+    puffs: Math.floor(2 + Math.random() * 3),
+  };
+}
+
+function updateClouds() {
+  // Only scroll when playing
+  if (state !== STATE.PLAYING) return;
+  cloudLayers.forEach((layer, li) => {
+    layer.clouds.forEach(c => {
+      c.x -= layer.speed;
+      if (c.x + c.w < 0) {
+        Object.assign(c, makeCloud(layer, li, false));
+      }
+    });
+  });
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   STARS
+   ══════════════════════════════════════════════════════════════════ */
+const stars = Array.from({ length: CONFIG.STAR_COUNT }, () => ({
+  x:       Math.random() * W,
+  y:       Math.random() * (H - CONFIG.GROUND_H),
+  r:       Math.random() * 1.5 + 0.3,
   twinkle: Math.random() * Math.PI * 2,
-  speed: Math.random() * 0.3 + 0.05,
+  speed:   Math.random() * 0.3 + 0.05,
 }));
 
-/* ── Ground tiles ──────────────────────────────────────────────── */
-let groundOffset = 0;
-const TILE = 30;
-
-/* ── Particles ─────────────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════════
+   PARTICLES
+   ══════════════════════════════════════════════════════════════════ */
 let particles = [];
 
-function spawnParticles(x, y) {
-  for (let i = 0; i < 14; i++) {
+function spawnBurst(x, y) {
+  for (let i = 0; i < CONFIG.BURST_COUNT; i++) {
     const angle = Math.random() * Math.PI * 2;
-    const speed = Math.random() * 4 + 1;
+    const spd   = Math.random() * 4.5 + 1;
     particles.push({
       x, y,
-      vx: Math.cos(angle) * speed,
-      vy: Math.sin(angle) * speed,
-      life: 1,
-      decay: Math.random() * 0.04 + 0.025,
-      r: Math.random() * 5 + 2,
-      color: ['#e8e8e8', '#3ddc84', '#f0e68c', '#a78bfa'][Math.floor(Math.random() * 4)],
+      vx:    Math.cos(angle) * spd,
+      vy:    Math.sin(angle) * spd,
+      life:  1,
+      decay: Math.random() * 0.04 + 0.022,
+      r:     Math.random() * 5 + 2,
+      color: ['#e8e8e8','#3ddc84','#f0e68c','#a78bfa','#ff6b6b'][
+               Math.floor(Math.random() * 5)],
     });
   }
 }
 
-/* ── Score flash ───────────────────────────────────────────────── */
-let scoreFlash = 0;
-
-/* ── Input ─────────────────────────────────────────────────────── */
-function flap() {
-  if (state === STATE.DEAD) return;
-  if (state === STATE.IDLE) {
-    startGame();
-    return;
-  }
-  ghost.vy = JUMP_FORCE;
+function updateParticles() {
+  particles.forEach(p => {
+    p.x    += p.vx;
+    p.y    += p.vy;
+    p.vy   += 0.12;
+    p.life -= p.decay;
+  });
+  particles = particles.filter(p => p.life > 0);
 }
 
-document.addEventListener('keydown', e => {
-  if (e.code === 'Space' || e.code === 'ArrowUp') {
-    e.preventDefault();
-    if (state === STATE.DEAD) { restartGame(); return; }
-    flap();
+/* ══════════════════════════════════════════════════════════════════
+   SCREEN SHAKE
+   ══════════════════════════════════════════════════════════════════ */
+let shakeMag = 0;
+
+function triggerShake() { shakeMag = CONFIG.SHAKE_MAGNITUDE; }
+
+function applyShake() {
+  if (shakeMag < 0.5) { shakeMag = 0; return; }
+  const dx = (Math.random() * 2 - 1) * shakeMag;
+  const dy = (Math.random() * 2 - 1) * shakeMag;
+  ctx.translate(dx, dy);
+  shakeMag *= CONFIG.SHAKE_DECAY;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   COLLISION
+   ══════════════════════════════════════════════════════════════════ */
+function checkCollision() {
+  const pad = CONFIG.GHOST_COLLISION_PAD;
+  const hs  = CONFIG.GHOST_SIZE / 2;
+  const gx1 = ghost.x  - hs + pad;
+  const gx2 = ghost.x  + hs - pad;
+  const gy1 = ghost.renderY - hs + pad;
+  const gy2 = ghost.renderY + hs - pad;
+
+  // Ground / ceiling
+  if (gy2 >= H - CONFIG.GROUND_H || gy1 <= 0) return true;
+
+  const capOff = (CONFIG.PIPE_WIDTH + 10 - CONFIG.PIPE_WIDTH) / 2;
+  for (const p of pipes) {
+    const px1 = p.x - capOff + pad;
+    const px2 = p.x + CONFIG.PIPE_WIDTH + capOff - pad;
+    if (gx2 > px1 && gx1 < px2) {
+      if (gy1 < p.topH || gy2 > p.botY) return true;
+    }
   }
-});
+  return false;
+}
 
-canvas.addEventListener('pointerdown', () => {
-  if (state === STATE.DEAD) { restartGame(); return; }
-  flap();
-});
+/* ══════════════════════════════════════════════════════════════════
+   SCORE FLASH  &  VISUAL SCORE POPUP
+   ══════════════════════════════════════════════════════════════════ */
+let scoreFlash   = 0;
+const scorePops  = [];   // floating +1 indicators
 
-/* ── Game flow ─────────────────────────────────────────────────── */
+function spawnScorePop() {
+  scorePops.push({ x: ghost.x + 30, y: ghost.renderY - 20, life: 1 });
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   GROUND SCROLL
+   ══════════════════════════════════════════════════════════════════ */
+let groundOffset = 0;
+
+/* ══════════════════════════════════════════════════════════════════
+   GAME FLOW
+   ══════════════════════════════════════════════════════════════════ */
 function startGame() {
-  state = STATE.PLAYING;
-  score = 0;
-  pipes = [];
-  particles = [];
+  state        = STATE.PLAYING;
+  score        = 0;
+  pipes        = [];
+  particles    = [];
+  scorePops.length = 0;
+  pipeSpeed    = CONFIG.PIPE_SPEED_INIT;
+  pipeInterval = CONFIG.PIPE_INTERVAL;
   lastPipeTime = 0;
+  shakeMag     = 0;
   resetGhost();
-  ghost.vy = JUMP_FORCE * 0.7; // gentle launch
+  ghost.vy = CONFIG.JUMP_FORCE * 0.7;
   startScreen.classList.add('hidden');
   gameOverScreen.classList.add('hidden');
+  pauseScreen.classList.add('hidden');
 }
 
 function killGhost() {
   state = STATE.DEAD;
-  spawnParticles(ghost.x, ghost.y);
+  triggerShake();
+  spawnBurst(ghost.x, ghost.renderY);
+  playSound('gameover');
   if (score > bestScore) {
     bestScore = score;
-    localStorage.setItem('flappyKiroBest', bestScore);
+    localStorage.setItem(CONFIG.LOCALSTORAGE_KEY, bestScore);
   }
   finalScoreEl.textContent = score;
   bestScoreEl.textContent  = bestScore;
-  setTimeout(() => gameOverScreen.classList.remove('hidden'), 700);
+  setTimeout(() => gameOverScreen.classList.remove('hidden'),
+             CONFIG.GAMEOVER_DELAY_MS);
+}
+
+function togglePause() {
+  if (state === STATE.PLAYING) {
+    state = STATE.PAUSED;
+    pauseScreen.classList.remove('hidden');
+  } else if (state === STATE.PAUSED) {
+    state = STATE.PLAYING;
+    pauseScreen.classList.add('hidden');
+  }
 }
 
 function restartGame() {
@@ -157,20 +328,42 @@ function restartGame() {
 }
 
 /* ══════════════════════════════════════════════════════════════════
-   DRAWING HELPERS
+   INPUT
+   ══════════════════════════════════════════════════════════════════ */
+function flap() {
+  if (state === STATE.DEAD)   { restartGame(); return; }
+  if (state === STATE.IDLE)   { startGame();   return; }
+  if (state === STATE.PAUSED) return;
+  ghost.vy = CONFIG.JUMP_FORCE;
+  playSound('jump');
+}
+
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space' || e.code === 'ArrowUp') {
+    e.preventDefault();
+    flap();
+  }
+  if (e.code === 'KeyP' || e.code === 'Escape') {
+    e.preventDefault();
+    if (state === STATE.PLAYING || state === STATE.PAUSED) togglePause();
+  }
+});
+
+canvas.addEventListener('pointerdown', () => flap());
+
+/* ══════════════════════════════════════════════════════════════════
+   DRAW HELPERS
    ══════════════════════════════════════════════════════════════════ */
 
-/* Sky gradient */
 function drawBackground() {
-  const grad = ctx.createLinearGradient(0, 0, 0, H - GROUND_H);
+  const grad = ctx.createLinearGradient(0, 0, 0, H - CONFIG.GROUND_H);
   grad.addColorStop(0,    '#0d0d1a');
   grad.addColorStop(0.55, '#1a1a3e');
   grad.addColorStop(1,    '#0d1a2e');
   ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, W, H - GROUND_H);
+  ctx.fillRect(0, 0, W, H - CONFIG.GROUND_H);
 }
 
-/* Stars */
 function drawStars(t) {
   stars.forEach(s => {
     s.twinkle += s.speed * 0.04;
@@ -182,97 +375,137 @@ function drawStars(t) {
   });
 }
 
-/* Ground */
-function drawGround(dt) {
-  if (state === STATE.PLAYING) groundOffset = (groundOffset + PIPE_SPEED) % TILE;
+/* Draw a single puffy cloud shape */
+function drawCloudShape(x, y, w, h, puffs, alpha) {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle   = '#c8d8ff';
 
-  // Dirt fill
-  const gGrad = ctx.createLinearGradient(0, H - GROUND_H, 0, H);
-  gGrad.addColorStop(0, '#3ddc84');
+  const rx = w / 2;
+  const ry = h / 2;
+
+  // Base ellipse
+  ctx.beginPath();
+  ctx.ellipse(x + rx, y + ry, rx, ry, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Extra puffs across the top
+  for (let i = 0; i < puffs; i++) {
+    const px  = x + (w / (puffs + 1)) * (i + 1);
+    const pr  = (ry * 0.7) + Math.random() * ry * 0.3;
+    ctx.beginPath();
+    ctx.arc(px, y + ry * 0.5, pr, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+function drawClouds() {
+  cloudLayers.forEach(layer => {
+    layer.clouds.forEach(c => {
+      drawCloudShape(c.x, c.y, c.w, c.h, c.puffs, layer.alpha);
+    });
+  });
+}
+
+const PIPE_CAP_W = CONFIG.PIPE_WIDTH + 10;
+const PIPE_CAP_H = 18;
+
+function drawPipe(pipe) {
+  const capX = pipe.x - (PIPE_CAP_W - CONFIG.PIPE_WIDTH) / 2;
+
+  // ── Top body ──
+  let g = ctx.createLinearGradient(pipe.x, 0, pipe.x + CONFIG.PIPE_WIDTH, 0);
+  g.addColorStop(0,   '#27ae60');
+  g.addColorStop(0.3, '#2ecc71');
+  g.addColorStop(0.7, '#2ecc71');
+  g.addColorStop(1,   '#1a8c45');
+  ctx.fillStyle = g;
+  ctx.fillRect(pipe.x, 0, CONFIG.PIPE_WIDTH, pipe.topH);
+
+  ctx.fillStyle = 'rgba(255,255,255,0.12)';
+  ctx.fillRect(pipe.x + 8, 0, 10, pipe.topH);
+
+  // Top cap
+  let cg = ctx.createLinearGradient(capX, 0, capX + PIPE_CAP_W, 0);
+  cg.addColorStop(0,   '#27ae60');
+  cg.addColorStop(0.3, '#3ddc84');
+  cg.addColorStop(0.7, '#3ddc84');
+  cg.addColorStop(1,   '#1a8c45');
+  ctx.fillStyle = cg;
+  ctx.fillRect(capX, pipe.topH - PIPE_CAP_H, PIPE_CAP_W, PIPE_CAP_H);
+  ctx.fillStyle = 'rgba(255,255,255,0.15)';
+  ctx.fillRect(capX + 6, pipe.topH - PIPE_CAP_H + 3, 12, PIPE_CAP_H - 6);
+
+  // ── Bottom body ──
+  ctx.fillStyle = g;
+  ctx.fillRect(pipe.x, pipe.botY, CONFIG.PIPE_WIDTH, pipe.botH);
+  ctx.fillStyle = 'rgba(255,255,255,0.12)';
+  ctx.fillRect(pipe.x + 8, pipe.botY, 10, pipe.botH);
+
+  // Bottom cap
+  ctx.fillStyle = cg;
+  ctx.fillRect(capX, pipe.botY, PIPE_CAP_W, PIPE_CAP_H);
+  ctx.fillStyle = 'rgba(255,255,255,0.15)';
+  ctx.fillRect(capX + 6, pipe.botY + 3, 12, PIPE_CAP_H - 6);
+}
+
+function drawGround() {
+  if (state === STATE.PLAYING) {
+    groundOffset = (groundOffset + pipeSpeed) % CONFIG.GROUND_TILE;
+  }
+  const gGrad = ctx.createLinearGradient(0, H - CONFIG.GROUND_H, 0, H);
+  gGrad.addColorStop(0,    '#3ddc84');
   gGrad.addColorStop(0.12, '#2bbd6e');
   gGrad.addColorStop(0.13, '#1a5c35');
   gGrad.addColorStop(1,    '#0d2e1a');
   ctx.fillStyle = gGrad;
-  ctx.fillRect(0, H - GROUND_H, W, GROUND_H);
+  ctx.fillRect(0, H - CONFIG.GROUND_H, W, CONFIG.GROUND_H);
 
-  // Pixel-tile top stripe
   ctx.fillStyle = '#3ddc84';
-  for (let x = -groundOffset; x < W; x += TILE) {
-    ctx.fillRect(x, H - GROUND_H, TILE - 2, 8);
+  for (let x = -groundOffset; x < W; x += CONFIG.GROUND_TILE) {
+    ctx.fillRect(x, H - CONFIG.GROUND_H, CONFIG.GROUND_TILE - 2, 8);
   }
 }
 
-/* Pipe cap dimensions */
-const CAP_W = PIPE_WIDTH + 10;
-const CAP_H = 18;
-
-function drawPipe(pipe) {
-  // ── Top pipe body ──
-  const topGrad = ctx.createLinearGradient(pipe.x, 0, pipe.x + PIPE_WIDTH, 0);
-  topGrad.addColorStop(0,   '#27ae60');
-  topGrad.addColorStop(0.3, '#2ecc71');
-  topGrad.addColorStop(0.7, '#2ecc71');
-  topGrad.addColorStop(1,   '#1a8c45');
-  ctx.fillStyle = topGrad;
-  ctx.fillRect(pipe.x, 0, PIPE_WIDTH, pipe.topH);
-
-  // Highlight stripe on top body
-  ctx.fillStyle = 'rgba(255,255,255,0.12)';
-  ctx.fillRect(pipe.x + 8, 0, 10, pipe.topH);
-
-  // Top pipe cap
-  const capX = pipe.x - (CAP_W - PIPE_WIDTH) / 2;
-  const capGrad = ctx.createLinearGradient(capX, 0, capX + CAP_W, 0);
-  capGrad.addColorStop(0,   '#27ae60');
-  capGrad.addColorStop(0.3, '#3ddc84');
-  capGrad.addColorStop(0.7, '#3ddc84');
-  capGrad.addColorStop(1,   '#1a8c45');
-  ctx.fillStyle = capGrad;
-  ctx.fillRect(capX, pipe.topH - CAP_H, CAP_W, CAP_H);
-
-  // Cap highlight
-  ctx.fillStyle = 'rgba(255,255,255,0.15)';
-  ctx.fillRect(capX + 6, pipe.topH - CAP_H + 3, 12, CAP_H - 6);
-
-  // ── Bottom pipe body ──
-  const botGrad = ctx.createLinearGradient(pipe.x, 0, pipe.x + PIPE_WIDTH, 0);
-  botGrad.addColorStop(0,   '#27ae60');
-  botGrad.addColorStop(0.3, '#2ecc71');
-  botGrad.addColorStop(0.7, '#2ecc71');
-  botGrad.addColorStop(1,   '#1a8c45');
-  ctx.fillStyle = botGrad;
-  ctx.fillRect(pipe.x, pipe.botY, PIPE_WIDTH, pipe.botH);
-
-  // Highlight stripe on bottom body
-  ctx.fillStyle = 'rgba(255,255,255,0.12)';
-  ctx.fillRect(pipe.x + 8, pipe.botY, 10, pipe.botH);
-
-  // Bottom pipe cap
-  ctx.fillStyle = capGrad;
-  ctx.fillRect(capX, pipe.botY, CAP_W, CAP_H);
-
-  // Cap highlight
-  ctx.fillStyle = 'rgba(255,255,255,0.15)';
-  ctx.fillRect(capX + 6, pipe.botY + 3, 12, CAP_H - 6);
-}
-
-/* Ghost character */
 function drawGhost(t) {
   ctx.save();
-  ctx.translate(ghost.x, ghost.y);
+  ctx.translate(ghost.x, ghost.renderY);
 
-  // Tilt based on velocity (playing), or gentle float (idle/dead)
-  let tilt = 0;
-  if (state === STATE.PLAYING) {
-    tilt = Math.min(Math.max(ghost.vy * 3, -30), 70) * (Math.PI / 180);
-  } else {
-    tilt = Math.sin(t * 0.002) * 0.12;
-  }
+  const tilt = state === STATE.PLAYING
+    ? Math.min(Math.max(ghost.vy * 3, -30), 70) * (Math.PI / 180)
+    : Math.sin(t * 0.002) * 0.12;
   ctx.rotate(tilt);
 
-  const s = GHOST_SIZE;
+  const s  = CONFIG.GHOST_SIZE;
   const hs = s / 2;
 
+  // ── Particle trails (wisps behind ghost) ──
+  if (state === STATE.PLAYING) {
+    for (let i = 1; i <= CONFIG.TRAIL_COUNT; i++) {
+      const wx = -hs - i * 12;
+      const wy = Math.sin(t * 0.006 + i) * 4;
+      const wr = (CONFIG.TRAIL_COUNT + 1 - i) * 2.5;
+      ctx.beginPath();
+      ctx.arc(wx, wy, wr, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(167,139,250,${0.28 - i * 0.07})`;
+      ctx.fill();
+    }
+  }
+
+  // ── Use sprite if loaded, else draw canvas ghost ──
+  if (ghostImgLoaded) {
+    ctx.drawImage(ghostImg, -hs, -hs, s, s);
+  } else {
+    drawCanvasGhost(s, hs, t);
+  }
+
+  ctx.restore();
+}
+
+function drawCanvasGhost(s, hs, t) {
   // Glow
   const glow = ctx.createRadialGradient(0, 0, 2, 0, 0, s);
   glow.addColorStop(0, 'rgba(167,139,250,0.35)');
@@ -280,162 +513,104 @@ function drawGhost(t) {
   ctx.fillStyle = glow;
   ctx.fillRect(-s, -s, s * 2, s * 2);
 
-  // Body (rounded top, wavy bottom)
+  // Body
   ctx.beginPath();
   ctx.moveTo(-hs, s * 0.25);
-  ctx.arc(0, -s * 0.1, hs, Math.PI, 0);  // rounded top
-  // wavy bottom skirt
+  ctx.arc(0, -s * 0.1, hs, Math.PI, 0);
   ctx.lineTo(hs, s * 0.25);
-  const waveAmp = 6;
-  const waveSpd = state === STATE.PLAYING ? t * 0.008 : t * 0.003;
-  ctx.bezierCurveTo( hs * 0.7, s * 0.25 + waveAmp * Math.sin(waveSpd),
-                     hs * 0.3, s * 0.55,
-                     0,        s * 0.45);
+  const wa = 6;
+  const ws = state === STATE.PLAYING ? t * 0.008 : t * 0.003;
+  ctx.bezierCurveTo( hs * 0.7, s * 0.25 + wa * Math.sin(ws),
+                     hs * 0.3, s * 0.55, 0, s * 0.45);
   ctx.bezierCurveTo(-hs * 0.3, s * 0.55,
-                    -hs * 0.7, s * 0.25 + waveAmp * Math.sin(waveSpd + 1.5),
-                    -hs,       s * 0.25);
+                    -hs * 0.7, s * 0.25 + wa * Math.sin(ws + 1.5),
+                    -hs, s * 0.25);
   ctx.closePath();
 
-  // Body fill
-  const bodyGrad = ctx.createRadialGradient(-hs * 0.3, -hs * 0.4, 2, 0, 0, s);
-  bodyGrad.addColorStop(0, '#ffffff');
-  bodyGrad.addColorStop(0.5, '#dcd0ff');
-  bodyGrad.addColorStop(1,   '#a78bfa');
-  ctx.fillStyle = bodyGrad;
+  const bg = ctx.createRadialGradient(-hs * 0.3, -hs * 0.4, 2, 0, 0, s);
+  bg.addColorStop(0, '#ffffff');
+  bg.addColorStop(0.5, '#dcd0ff');
+  bg.addColorStop(1,   '#a78bfa');
+  ctx.fillStyle = bg;
   ctx.fill();
-
-  // Body outline
   ctx.strokeStyle = '#7c5cbf';
-  ctx.lineWidth = 2;
+  ctx.lineWidth   = 2;
   ctx.stroke();
 
   // Eyes
-  const eyeY   = -s * 0.05;
+  const eyeY    = -s * 0.05;
   const eyeSize = s * 0.13;
-  const blink  = (Math.floor(t / 3000) % 8 === 0 && (t % 3000) < 120) ? 0.15 : 1;
+  const blink   = (Math.floor(t / 3000) % 8 === 0 && (t % 3000) < 120) ? 0.15 : 1;
 
-  // Left eye white
-  ctx.beginPath();
-  ctx.ellipse(-hs * 0.38, eyeY, eyeSize, eyeSize * blink, 0, 0, Math.PI * 2);
-  ctx.fillStyle = '#1a1a2e';
-  ctx.fill();
-  // Left pupil
-  ctx.beginPath();
-  ctx.arc(-hs * 0.38 + 2, eyeY, eyeSize * 0.45, 0, Math.PI * 2);
-  ctx.fillStyle = '#fff';
-  ctx.fill();
+  [[-hs * 0.38, 2], [hs * 0.38, 2]].forEach(([ex, px]) => {
+    ctx.beginPath();
+    ctx.ellipse(ex, eyeY, eyeSize, eyeSize * blink, 0, 0, Math.PI * 2);
+    ctx.fillStyle = '#1a1a2e'; ctx.fill();
+    ctx.beginPath();
+    ctx.arc(ex + px, eyeY, eyeSize * 0.45, 0, Math.PI * 2);
+    ctx.fillStyle = '#fff'; ctx.fill();
+  });
 
-  // Right eye white
-  ctx.beginPath();
-  ctx.ellipse(hs * 0.38, eyeY, eyeSize, eyeSize * blink, 0, 0, Math.PI * 2);
-  ctx.fillStyle = '#1a1a2e';
-  ctx.fill();
-  // Right pupil
-  ctx.beginPath();
-  ctx.arc(hs * 0.38 + 2, eyeY, eyeSize * 0.45, 0, Math.PI * 2);
-  ctx.fillStyle = '#fff';
-  ctx.fill();
-
-  // Smile (only when alive & playing ok)
   if (state !== STATE.DEAD) {
     ctx.beginPath();
     ctx.arc(0, eyeY + eyeSize * 1.5, eyeSize * 0.8, 0.2, Math.PI - 0.2);
     ctx.strokeStyle = '#5b3f9e';
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth   = 1.5;
     ctx.stroke();
   } else {
-    // X eyes when dead
-    const ex = [-hs * 0.38, hs * 0.38];
-    ex.forEach(ex => {
+    [[-hs * 0.38], [hs * 0.38]].forEach(([ex]) => {
       ctx.beginPath();
       ctx.moveTo(ex - eyeSize, eyeY - eyeSize);
       ctx.lineTo(ex + eyeSize, eyeY + eyeSize);
       ctx.moveTo(ex + eyeSize, eyeY - eyeSize);
       ctx.lineTo(ex - eyeSize, eyeY + eyeSize);
       ctx.strokeStyle = '#e74c3c';
-      ctx.lineWidth = 2.5;
+      ctx.lineWidth   = 2.5;
       ctx.stroke();
     });
   }
-
-  // Small trailing wisps
-  if (state === STATE.PLAYING) {
-    for (let i = 1; i <= 3; i++) {
-      const wx = -hs - i * 12;
-      const wy = Math.sin(t * 0.006 + i) * 4;
-      const wr = (4 - i) * 2.5;
-      ctx.beginPath();
-      ctx.arc(wx, wy, wr, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(167,139,250,${0.25 - i * 0.06})`;
-      ctx.fill();
-    }
-  }
-
-  ctx.restore();
 }
 
-/* Score display */
 function drawScore() {
   const flash = scoreFlash > 0;
   ctx.save();
-  ctx.font = '900 28px "Press Start 2P", monospace';
+  ctx.font      = '28px "Press Start 2P", monospace';
   ctx.textAlign = 'center';
-  // shadow
-  ctx.fillStyle = flash ? '#f0e68c' : 'rgba(0,0,0,0.5)';
+  ctx.fillStyle = 'rgba(0,0,0,0.45)';
   ctx.fillText(score, W / 2 + 2, 58);
-  // text
-  ctx.fillStyle = flash ? '#fff' : '#f0e68c';
+  ctx.fillStyle = flash ? '#ffffff' : '#f0e68c';
   ctx.fillText(score, W / 2, 56);
   ctx.restore();
   if (flash) scoreFlash--;
 }
 
-/* Particles */
+function drawScorePops(t) {
+  scorePops.forEach((p, i) => {
+    p.y    -= 1.2;
+    p.life -= 0.025;
+    ctx.save();
+    ctx.globalAlpha = p.life;
+    ctx.font        = '14px "Press Start 2P", monospace';
+    ctx.textAlign   = 'center';
+    ctx.fillStyle   = '#f0e68c';
+    ctx.fillText('+1', p.x, p.y);
+    ctx.restore();
+  });
+  // Remove dead pops
+  for (let i = scorePops.length - 1; i >= 0; i--) {
+    if (scorePops[i].life <= 0) scorePops.splice(i, 1);
+  }
+}
+
 function drawParticles() {
   particles.forEach(p => {
     ctx.beginPath();
     ctx.arc(p.x, p.y, p.r * p.life, 0, Math.PI * 2);
-    ctx.fillStyle = p.color;
+    ctx.fillStyle   = p.color;
     ctx.globalAlpha = p.life;
     ctx.fill();
     ctx.globalAlpha = 1;
   });
-}
-
-/* Idle ghost float */
-function drawIdleLabel(t) {
-  ctx.save();
-  ctx.font = '600 8px "Press Start 2P", monospace';
-  ctx.textAlign = 'center';
-  ctx.fillStyle = 'rgba(167,139,250,0.7)';
-  const bounce = Math.sin(t * 0.003) * 3;
-  ctx.fillText('', W / 2, H / 2 + 60 + bounce);
-  ctx.restore();
-}
-
-/* ══════════════════════════════════════════════════════════════════
-   COLLISION
-   ══════════════════════════════════════════════════════════════════ */
-function checkCollision() {
-  const pad = 6; // forgiveness pixels
-  const gx1 = ghost.x - GHOST_SIZE / 2 + pad;
-  const gx2 = ghost.x + GHOST_SIZE / 2 - pad;
-  const gy1 = ghost.y - GHOST_SIZE / 2 + pad;
-  const gy2 = ghost.y + GHOST_SIZE / 2 - pad;
-
-  // Ground / ceiling
-  if (gy2 >= H - GROUND_H || gy1 <= 0) return true;
-
-  for (const p of pipes) {
-    const capOff = (CAP_W - PIPE_WIDTH) / 2;
-    const px1 = p.x - capOff + pad;
-    const px2 = p.x + PIPE_WIDTH + capOff - pad;
-
-    if (gx2 > px1 && gx1 < px2) {
-      if (gy1 < p.topH || gy2 > p.botY) return true;
-    }
-  }
-  return false;
 }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -444,67 +619,58 @@ function checkCollision() {
 let lastTime = 0;
 
 function loop(timestamp) {
-  const dt = Math.min(timestamp - lastTime, 50); // cap at 50ms
-  lastTime = timestamp;
+  const dt = Math.min(timestamp - lastTime, CONFIG.FRAME_CAP_MS);
+  lastTime  = timestamp;
 
-  /* ── Update ── */
+  /* ── UPDATE ── */
   if (state === STATE.PLAYING) {
-    // Physics
-    ghost.vy += GRAVITY;
-    ghost.y  += ghost.vy;
-
-    // Pipes
-    if (timestamp - lastPipeTime > PIPE_INTERVAL || lastPipeTime === 0) {
-      spawnPipe(timestamp);
-    }
-
-    pipes.forEach(p => { p.x -= PIPE_SPEED; });
-    pipes = pipes.filter(p => p.x + PIPE_WIDTH + 20 > 0);
-
-    // Scoring
-    pipes.forEach(p => {
-      if (!p.scored && p.x + PIPE_WIDTH < ghost.x) {
-        p.scored = true;
-        score++;
-        scoreFlash = 8;
-      }
-    });
-
-    // Collision
+    updateGhost();
+    updatePipes(timestamp);
+    updateClouds();
     if (checkCollision()) killGhost();
   }
 
   if (state === STATE.IDLE) {
-    ghost.y = H / 2 + Math.sin(timestamp * 0.002) * 18;
+    ghost.y       = H / 2 + Math.sin(timestamp * 0.002) * 18;
+    ghost.renderY = ghost.y;
+    updateClouds();
   }
 
   if (state === STATE.DEAD) {
-    ghost.vy += GRAVITY * 0.7;
-    ghost.y  += ghost.vy;
-    ghost.y   = Math.min(ghost.y, H - GROUND_H - GHOST_SIZE / 2);
+    ghost.vy += CONFIG.GRAVITY * 0.65;
+    if (ghost.vy > CONFIG.TERMINAL_VEL) ghost.vy = CONFIG.TERMINAL_VEL;
+    ghost.y      += ghost.vy;
+    ghost.renderY = ghost.y;
+    ghost.y       = Math.min(ghost.y, H - CONFIG.GROUND_H - CONFIG.GHOST_SIZE / 2);
+    ghost.renderY = ghost.y;
   }
 
-  // Particles
-  particles.forEach(p => {
-    p.x += p.vx;
-    p.y += p.vy;
-    p.vy += 0.12;
-    p.life -= p.decay;
-  });
-  particles = particles.filter(p => p.life > 0);
+  updateParticles();
 
-  /* ── Draw ── */
+  /* ── DRAW ── */
+  ctx.save();
+  applyShake();
+
   drawBackground();
   drawStars(timestamp);
+  drawClouds();
   pipes.forEach(drawPipe);
-  drawGround(dt);
+  drawGround();
   drawGhost(timestamp);
-  if (state === STATE.PLAYING || state === STATE.DEAD) drawScore();
+
+  if (state === STATE.PLAYING || state === STATE.DEAD || state === STATE.PAUSED) {
+    drawScore();
+    drawScorePops(timestamp);
+  }
+
   drawParticles();
+
+  ctx.restore();
 
   requestAnimationFrame(loop);
 }
 
 /* ── Boot ── */
+menuBestEl.textContent = bestScore;
 resetGhost();
 requestAnimationFrame(loop);
