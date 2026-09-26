@@ -1,0 +1,63 @@
+{
+  "physics": {
+    "gravity": 800,
+    "jumpVelocity": -300,
+    "terminalVelocity": 600,
+    "momentumDamping": 0.98,
+    "interpolationFactor": 0.18
+  },
+  "walls": {
+    "speed": 120,
+    "width": 64,
+    "gapSize": 140,
+    "spacing": 350,
+    "spawnOffsetX": 480,
+    "marginTop": 80,
+    "marginBottom": 80,
+    "speedIncrement": 2.0,
+    "speedMax": 260
+  },
+  "ghost": {
+    "x": 100,
+    "size": 40,
+    "collisionPadding": 7
+  },
+  "ground": {
+    "height": 60,
+    "tileWidth": 30
+  },
+  "clouds": {
+    "layers": [
+      { "speed": 20,  "alpha": 0.12, "scale": 0.6, "count": 3 },
+      { "speed": 45,  "alpha": 0.22, "scale": 0.85, "count": 3 },
+      { "speed": 80,  "alpha": 0.38, "scale": 1.1,  "count": 2 }
+    ]
+  },
+  "scoring": {
+    "gapShrinkPerPoint": 1.2,
+    "gapMinSize": 120,
+    "spawnIntervalMs": 1600,
+    "spawnIntervalMinMs": 900,
+    "spawnIntervalDecrement": 10,
+    "localStorageKey": "flappyKiroBest"
+  },
+  "audio": {
+    "sfxVolume": 0.55,
+    "musicVolume": 0.20
+  },
+  "visual": {
+    "screenShakeMagnitude": 9,
+    "screenShakeDecay": 0.82,
+    "burstParticleCount": 16,
+    "trailWispCount": 3,
+    "scoreFlashFrames": 10
+  },
+  "timing": {
+    "frameCapMs": 50,
+    "gameOverDelayMs": 750
+  },
+  "canvas": {
+    "width": 480,
+    "height": 640
+  }
+}
